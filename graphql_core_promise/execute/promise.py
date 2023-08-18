@@ -482,6 +482,7 @@ class PromiseExecutionContext(ExecutionContext):
 
                 def on_one_resolved(result):
                     completed_results[index] = result
+                    return completed_results
 
                 # If there is only one index, avoid the overhead of parallelization.
                 index = awaitable_indices[0]
