@@ -18,6 +18,7 @@ pytest-describe = "^2.0.1"
 # These two are peer dependencies
 graphql-core = "^3.2"
 promise = "^2.3"
+pytest-benchmark = "^4.0.0"
 
 [build-system]
 requires = ["poetry-core"]
