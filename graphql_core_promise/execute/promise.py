@@ -48,7 +48,7 @@ PromiseOrValue = Union[Promise[T], T]
 class PromiseExecutionContext(ExecutionContext):
     """
     Translate methods on the original graphql.execution.execute.ExecutionContext
-    to be promise-aware and promise-based so that promise-based dataloaders and 
+    to be promise-aware and promise-based so that promise-based dataloaders and
     resolvers can continue to function
     """
 
@@ -153,6 +153,7 @@ class PromiseExecutionContext(ExecutionContext):
 
             if self.is_promise(result):
                 result: Promise = result
+
                 # noinspection PyShadowingNames
                 def await_result() -> Any:
                     def handle_error(raw_error):
@@ -214,16 +215,24 @@ class PromiseExecutionContext(ExecutionContext):
         if not awaitable_fields:
             return results
 
-        def get_results() -> Dict[str, Any]:
-            def on_all_resolve(resolved_results: List[Any]):
-                for field, result in zip(awaitable_fields, resolved_results):
-                    results[field] = result
-                return results
+        def get_results() -> dict[str, Any]:
+            r = [results[field] for field in awaitable_fields]
+            if len(r) > 1:
 
-            p = Promise.all([results[field] for field in awaitable_fields]).then(
-                on_all_resolve
-            )
-            return p
+                def on_all_resolve(resolved_results: list[Any]):
+                    for field, result in zip(awaitable_fields, resolved_results):
+                        results[field] = result
+                    return results
+
+                p = Promise.all(r).then(on_all_resolve)
+            else:
+
+                def on_single_resolve(resolved):
+                    results[awaitable_fields[0]] = resolved
+                    return results
+
+                return r[0].then(on_single_resolve)
+            return p  # type: ignore
 
         return get_results()
 
@@ -468,7 +477,17 @@ class PromiseExecutionContext(ExecutionContext):
             return completed_results
 
         # noinspection PyShadowingNames
-        def get_completed_results() -> List[Any]:
+        def get_completed_results() -> list[Any]:
+            if len(awaitable_indices) == 1:
+
+                def on_one_resolved(result):
+                    completed_results[index] = result
+                    return completed_results
+
+                # If there is only one index, avoid the overhead of parallelization.
+                index = awaitable_indices[0]
+                return completed_results[0].then(on_one_resolved)
+
             def on_all_resolve(results):
                 for index, result in zip(awaitable_indices, results):
                     completed_results[index] = result
