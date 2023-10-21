@@ -4,7 +4,7 @@
 
 ## Usage
 
-This package provides a ExecuteContext that can be used as a drop-in replacement for the default one.
+This package provides an `ExecuteContext` that can be used as a drop-in replacement for the default one.
 
 ```python
 from graphql_core_promise import PromiseExecutionContext
@@ -24,8 +24,8 @@ class MyGraphQLView(GraphQLView):
 	execution_context_class = PromiseExecutionContext
 ```
 
-Note that this project requires graphene-django 3, which are not fully compatible issues with graphene-django 2. 
+Note that this project requires graphene-django 3, which is not fully compatible with graphene-django 2. 
 
 
 ### How it works
-This packages is done by transating the asyncio code in the default `ExecuteContext` into promise based code. 
+This packages is done by translating the asyncio code in the default `ExecuteContext` into promise based code. 
