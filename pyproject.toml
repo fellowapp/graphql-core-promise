@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "graphql-core-promise"
-version = "3.2.3-1"
+version = "3.2.3-2"
 description = "Add support for promise-based dataloaders and resolvers to graphql-core v3+"
 authors = ["Shen Li <dustet@gmail.com>"]
 license = "MIT"
