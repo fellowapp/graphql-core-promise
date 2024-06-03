@@ -7,7 +7,7 @@ name = "graphql-core-promise"
 dynamic = ["version"]
 description = "Add support for promise-based dataloaders and resolvers to graphql-core v3+"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 authors = [
     { name = "Samuel Cormier-Iijima", email = "sam@fellow.co" },
     { name = "Shen Li", email = "dustet@gmail.com" },
