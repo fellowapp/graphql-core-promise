@@ -18,6 +18,8 @@ dependencies = ["graphql-core>=3.2", "promise>=2.3"]
 [project.optional-dependencies]
 dev = ["mypy~=1.9", "pytest~=8.2", "pytest-benchmark~=4.0", "ruff~=0.4"]
 
+[tool.setuptools]
+packages = ["graphql_core_promise"]
 
 [tool.setuptools_scm]
 
