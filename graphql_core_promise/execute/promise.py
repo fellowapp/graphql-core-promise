@@ -1,16 +1,13 @@
+from collections.abc import AsyncIterable, Callable, Iterable
 from functools import partial
 from typing import (
     Any,
-    AsyncIterable,
-    Dict,
-    Iterable,
-    List,
-    Optional,
+    TypeAlias,
     TypeVar,
-    Union,
     cast,
 )
 
+import promise
 from graphql.error import located_error
 from graphql.error.graphql_error import GraphQLError
 from graphql.execution.execute import (
@@ -18,31 +15,34 @@ from graphql.execution.execute import (
     get_field_def,
     invalid_return_type_error,
 )
+from graphql.execution.middleware import MiddlewareManager
 from graphql.execution.values import get_argument_values
-from graphql.language.ast import FieldNode
-from graphql.pyutils import inspect, is_iterable
+from graphql.language.ast import (
+    FieldNode,
+    FragmentDefinitionNode,
+    OperationDefinitionNode,
+)
+from graphql.pyutils import AwaitableOrValue, is_iterable
 from graphql.pyutils.path import Path
 from graphql.pyutils.undefined import Undefined
+from graphql.type import GraphQLSchema
 from graphql.type.definition import (
     GraphQLAbstractType,
-    GraphQLLeafType,
+    GraphQLFieldResolver,
     GraphQLList,
-    GraphQLNonNull,
     GraphQLObjectType,
     GraphQLOutputType,
     GraphQLResolveInfo,
-    is_abstract_type,
-    is_leaf_type,
-    is_list_type,
-    is_non_null_type,
-    is_object_type,
+    GraphQLTypeResolver,
 )
-
-import promise
 from promise import Promise
 
 T = TypeVar("T")
-PromiseOrValue = Union[Promise[T], T]
+PromiseOrValue: TypeAlias = Promise[T] | T
+
+
+def is_thenable(value: Any) -> bool:
+    return promise.is_thenable(value)
 
 
 class PromiseExecutionContext(ExecutionContext):
@@ -52,23 +52,53 @@ class PromiseExecutionContext(ExecutionContext):
     resolvers can continue to function
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.is_awaitable = self.is_promise = promise.is_thenable
+    def __init__(
+        self,
+        schema: GraphQLSchema,
+        fragments: dict[str, FragmentDefinitionNode],
+        root_value: Any,
+        context_value: Any,
+        operation: OperationDefinitionNode,
+        variable_values: dict[str, Any],
+        field_resolver: GraphQLFieldResolver,
+        type_resolver: GraphQLTypeResolver,
+        subscribe_field_resolver: GraphQLFieldResolver,
+        errors: list[GraphQLError],
+        middleware_manager: MiddlewareManager | None,
+        is_awaitable: Callable[[Any], bool] | None,
+    ) -> None:
+        super().__init__(
+            schema=schema,
+            fragments=fragments,
+            root_value=root_value,
+            context_value=context_value,
+            operation=operation,
+            variable_values=variable_values,
+            field_resolver=field_resolver,
+            type_resolver=type_resolver,
+            subscribe_field_resolver=subscribe_field_resolver,
+            errors=errors,
+            middleware_manager=middleware_manager,
+            is_awaitable=None,
+        )
 
-    def execute_operation(self, *args, **kwargs):
+    is_awaitable = is_promise = staticmethod(is_thenable)
+
+    def execute_operation(
+        self, operation: OperationDefinitionNode, root_value: Any
+    ) -> AwaitableOrValue[Any] | None:
         super_exec = super().execute_operation
-        result = Promise.resolve(None).then(lambda _: super_exec(*args, **kwargs))
+        result = Promise.resolve(None).then(lambda _: super_exec(operation, root_value))
         return result.get()
 
-    def execute_fields_serially(
+    def execute_fields_serially(  # type: ignore[override]
         self,
         parent_type: GraphQLObjectType,
         source_value: Any,
-        path: Optional[Path],
-        fields: Dict[str, List[FieldNode]],
-    ) -> PromiseOrValue[Dict[str, Any]]:
-        results: PromiseOrValue[Dict[str, Any]] = {}
+        path: Path | None,
+        fields: dict[str, list[FieldNode]],
+    ) -> PromiseOrValue[dict[str, Any]]:
+        results: PromiseOrValue[dict[str, Any]] = {}
         is_promise = self.is_promise
         for response_name, field_nodes in fields.items():
             field_path = Path(path, response_name, parent_type.name)
@@ -80,10 +110,10 @@ class PromiseExecutionContext(ExecutionContext):
             if is_promise(results):
                 # noinspection PyShadowingNames
                 def await_and_set_result(
-                    results: Promise[Dict[str, Any]],
+                    results: Promise[dict[str, Any]],
                     response_name: str,
                     result: PromiseOrValue[Any],
-                ) -> Promise[Dict[str, Any]]:
+                ) -> Promise[dict[str, Any]]:
                     def handle_results(resolved_results):
                         if is_promise(result):
 
@@ -104,10 +134,10 @@ class PromiseExecutionContext(ExecutionContext):
             elif is_promise(result):
                 # noinspection PyShadowingNames
                 def set_result(
-                    results: Dict[str, Any],
+                    results: dict[str, Any],
                     response_name: str,
                     result: Promise,
-                ) -> Promise[Dict[str, Any]]:
+                ) -> Promise[dict[str, Any]]:
                     def on_resolve(v):
                         results[response_name] = v
                         return results
@@ -115,17 +145,17 @@ class PromiseExecutionContext(ExecutionContext):
                     return result.then(on_resolve)
 
                 results = set_result(
-                    cast(Dict[str, Any], results), response_name, result
+                    cast(dict[str, Any], results), response_name, result
                 )
             else:
-                cast(Dict[str, Any], results)[response_name] = result
+                cast(dict[str, Any], results)[response_name] = result
         return results
 
     def execute_field(
         self,
         parent_type: GraphQLObjectType,
         source: Any,
-        field_nodes: List[FieldNode],
+        field_nodes: list[FieldNode],
         path: Path,
     ) -> PromiseOrValue[Any]:
         field_def = get_field_def(self.schema, parent_type, field_nodes[0])
@@ -152,7 +182,7 @@ class PromiseExecutionContext(ExecutionContext):
             result = resolve_fn(source, info, **args)
 
             if self.is_promise(result):
-                result: Promise = result
+                assert isinstance(result, Promise)
 
                 # noinspection PyShadowingNames
                 def await_result() -> Any:
@@ -174,6 +204,8 @@ class PromiseExecutionContext(ExecutionContext):
                 return_type, field_nodes, info, path, result
             )
             if self.is_promise(completed):
+                assert isinstance(completed, Promise)
+
                 # noinspection PyShadowingNames
                 def await_completed() -> Any:
                     def handle_error(raw_error):
@@ -191,16 +223,16 @@ class PromiseExecutionContext(ExecutionContext):
             self.handle_field_error(error, return_type)
             return None
 
-    def execute_fields(
+    def execute_fields(  # type: ignore[override]
         self,
         parent_type: GraphQLObjectType,
         source_value: Any,
-        path: Optional[Path],
-        fields: Dict[str, List[FieldNode]],
-    ) -> PromiseOrValue[Dict[str, Any]]:
+        path: Path | None,
+        fields: dict[str, list[FieldNode]],
+    ) -> PromiseOrValue[dict[str, Any]]:
         results = {}
         is_promise = self.is_promise
-        awaitable_fields: List[str] = []
+        awaitable_fields: list[str] = []
         append_awaitable = awaitable_fields.append
         for response_name, field_nodes in fields.items():
             field_path = Path(path, response_name, parent_type.name)
@@ -215,12 +247,14 @@ class PromiseExecutionContext(ExecutionContext):
         if not awaitable_fields:
             return results
 
-        def get_results() -> dict[str, Any]:
+        def get_results() -> PromiseOrValue[dict[str, Any]]:
             r = [results[field] for field in awaitable_fields]
             if len(r) > 1:
 
                 def on_all_resolve(resolved_results: list[Any]):
-                    for field, result in zip(awaitable_fields, resolved_results):
+                    for field, result in zip(
+                        awaitable_fields, resolved_results, strict=False
+                    ):
                         results[field] = result
                     return results
 
@@ -236,14 +270,14 @@ class PromiseExecutionContext(ExecutionContext):
 
         return get_results()
 
-    def complete_object_value(
+    def complete_object_value(  # type: ignore[override]
         self,
         return_type: GraphQLObjectType,
-        field_nodes: List[FieldNode],
+        field_nodes: list[FieldNode],
         info: GraphQLResolveInfo,
         path: Path,
         result: Any,
-    ) -> PromiseOrValue[Dict[str, Any]]:
+    ) -> PromiseOrValue[dict[str, Any]]:
         # Collect sub-fields to execute to complete this value.
         sub_field_nodes = self.collect_subfields(return_type, field_nodes)
 
@@ -254,10 +288,9 @@ class PromiseExecutionContext(ExecutionContext):
             is_type_of = return_type.is_type_of(result, info)
 
             if self.is_promise(is_type_of):
+                assert isinstance(is_type_of, Promise)
 
-                def execute_subfields_async() -> Dict[str, Any]:
-                    is_type_of = cast(Promise, is_type_of)
-
+                def execute_subfields_async() -> PromiseOrValue[dict[str, Any]]:
                     def on_is_type_of_resolve(v):
                         if not v:
                             raise (
@@ -280,73 +313,10 @@ class PromiseExecutionContext(ExecutionContext):
 
         return self.execute_fields(return_type, result, path, sub_field_nodes)
 
-    def complete_value(
-        self,
-        return_type: GraphQLOutputType,
-        field_nodes: List[FieldNode],
-        info: GraphQLResolveInfo,
-        path: Path,
-        result: Any,
-    ) -> PromiseOrValue[Any]:
-        # If result is an Exception, throw a located error.
-        if isinstance(result, Exception):
-            raise result
-
-        # If field type is NonNull, complete for inner type, and throw field error if
-        # result is null.
-        if is_non_null_type(return_type):
-            completed = self.complete_value(
-                cast(GraphQLNonNull, return_type).of_type,
-                field_nodes,
-                info,
-                path,
-                result,
-            )
-            if completed is None:
-                raise TypeError(
-                    "Cannot return null for non-nullable field"
-                    f" {info.parent_type.name}.{info.field_name}."
-                )
-            return completed
-
-        # If result value is null or undefined then return null.
-        if result is None or result is Undefined:
-            return None
-
-        # If field type is List, complete each item in the list with inner type
-        if is_list_type(return_type):
-            return self.complete_list_value(
-                cast(GraphQLList, return_type), field_nodes, info, path, result
-            )
-
-        # If field type is a leaf type, Scalar or Enum, serialize to a valid value,
-        # returning null if serialization is not possible.
-        if is_leaf_type(return_type):
-            return self.complete_leaf_value(cast(GraphQLLeafType, return_type), result)
-
-        # If field type is an abstract type, Interface or Union, determine the runtime
-        # Object type and complete for that type.
-        if is_abstract_type(return_type):
-            return self.complete_abstract_value(
-                cast(GraphQLAbstractType, return_type), field_nodes, info, path, result
-            )
-
-        # If field type is Object, execute and complete all sub-selections.
-        if is_object_type(return_type):
-            return self.complete_object_value(
-                cast(GraphQLObjectType, return_type), field_nodes, info, path, result
-            )
-
-        # Not reachable. All possible output types have been considered.
-        raise TypeError(  # pragma: no cover
-            "Cannot complete value of unexpected output type:"
-            f" '{inspect(return_type)}'."
-        )
-
     def complete_abstract_value(
         self,
         return_type: GraphQLAbstractType,
-        field_nodes: List[FieldNode],
+        field_nodes: list[FieldNode],
         info: GraphQLResolveInfo,
         path: Path,
         result: Any,
@@ -355,7 +325,7 @@ class PromiseExecutionContext(ExecutionContext):
         runtime_type = resolve_type_fn(result, info, return_type)  # type: ignore
 
         if self.is_promise(runtime_type):
-            runtime_type = cast(Promise, runtime_type)
+            assert isinstance(runtime_type, Promise)
 
             def await_complete_object_value() -> Any:
                 def on_runtime_type_resolve(resolved_runtime_type):
@@ -374,10 +344,10 @@ class PromiseExecutionContext(ExecutionContext):
                     )
 
                 value = runtime_type.then(on_runtime_type_resolve)
-                return value  # pragma: no cover
+                return value
 
             return await_complete_object_value()
-        runtime_type = cast(Optional[str], runtime_type)
+        runtime_type = cast(str | None, runtime_type)
 
         return self.complete_object_value(
             self.ensure_valid_runtime_type(
@@ -389,14 +359,14 @@ class PromiseExecutionContext(ExecutionContext):
             result,
         )
 
-    def complete_list_value(
+    def complete_list_value(  # type: ignore[override]
         self,
         return_type: GraphQLList[GraphQLOutputType],
-        field_nodes: List[FieldNode],
+        field_nodes: list[FieldNode],
         info: GraphQLResolveInfo,
         path: Path,
-        result: Union[Iterable[Any], Iterable[Promise[Any]]],
-    ) -> PromiseOrValue[List[Any]]:
+        result: Iterable[Any] | Iterable[Promise[Any]],
+    ) -> PromiseOrValue[list[Any]]:
         """Complete a list value.
 
         Complete a list value by completing each item in the list with the inner type.
@@ -405,12 +375,14 @@ class PromiseExecutionContext(ExecutionContext):
             # experimental: allow async iterables
             if isinstance(result, AsyncIterable):
                 # This should never happen in a promise context
-                raise Exception("what's going on?")
+                msg = "what's going on?"
+                raise Exception(msg)
 
-            raise GraphQLError(
+            msg = (
                 "Expected Iterable, but did not find one for field"
                 f" '{info.parent_type.name}.{info.field_name}'."
             )
+            raise GraphQLError(msg)
         result = cast(Iterable[Any], result)
 
         # This is specified as a simple map, however we're optimizing the path where
@@ -418,9 +390,9 @@ class PromiseExecutionContext(ExecutionContext):
         # object.
         item_type = return_type.of_type
         is_promise = self.is_promise
-        awaitable_indices: List[int] = []
+        awaitable_indices: list[int] = []
         append_awaitable = awaitable_indices.append
-        completed_results: List[Any] = []
+        completed_results: list[Any] = []
         append_result = completed_results.append
         for index, item in enumerate(result):
             # No need to modify the info object containing the path, since from here on
@@ -453,6 +425,8 @@ class PromiseExecutionContext(ExecutionContext):
                         item_type, field_nodes, info, item_path, item
                     )
                     if is_promise(completed_item):
+                        assert isinstance(completed_item, Promise)
+
                         # noinspection PyShadowingNames
                         def await_completed(item: Promise[Any], item_path: Path) -> Any:
                             def on_error(raw_error):
@@ -477,7 +451,7 @@ class PromiseExecutionContext(ExecutionContext):
             return completed_results
 
         # noinspection PyShadowingNames
-        def get_completed_results() -> list[Any]:
+        def get_completed_results() -> PromiseOrValue[list[Any]]:
             if len(awaitable_indices) == 1:
 
                 def on_one_resolved(result):
@@ -489,13 +463,13 @@ class PromiseExecutionContext(ExecutionContext):
                 return completed_results[0].then(on_one_resolved)
 
             def on_all_resolve(results):
-                for index, result in zip(awaitable_indices, results):
+                for index, result in zip(awaitable_indices, results, strict=False):
                     completed_results[index] = result
                 return completed_results
 
-            return Promise.all(
-                [completed_results[index] for index in awaitable_indices]
-            ).then(on_all_resolve)
+            return Promise.all([
+                completed_results[index] for index in awaitable_indices
+            ]).then(on_all_resolve)
 
         res = get_completed_results()
         return res

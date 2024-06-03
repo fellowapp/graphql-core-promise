@@ -16,7 +16,6 @@ from promise.dataloader import DataLoader
 
 from graphql_core_promise.execute import PromiseExecutionContext
 
-
 author_load_stub = MagicMock()
 name_loader_stub = MagicMock()
 book_loader_stub = MagicMock()
@@ -75,9 +74,9 @@ Author = GraphQLObjectType(
         ),
         "books": GraphQLField(
             GraphQLList(Book),
-            resolve=lambda obj, _info: books_loader.load_many(
-                [obj.id + f" book_{i}" for i in range(1, 3)]
-            ),
+            resolve=lambda obj, _info: books_loader.load_many([
+                obj.id + f" book_{i}" for i in range(1, 3)
+            ]),
         ),
     },
 )
