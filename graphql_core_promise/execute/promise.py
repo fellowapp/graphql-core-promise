@@ -460,7 +460,7 @@ class PromiseExecutionContext(ExecutionContext):
 
                 # If there is only one index, avoid the overhead of parallelization.
                 index = awaitable_indices[0]
-                return completed_results[0].then(on_one_resolved)
+                return completed_results[index].then(on_one_resolved)
 
             def on_all_resolve(results):
                 for index, result in zip(awaitable_indices, results, strict=False):

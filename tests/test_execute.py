@@ -150,6 +150,43 @@ def test_executes_simple_query(benchmark):
     name_loader_stub.assert_called_once_with(["1", "2"])
 
 
+def test_executes_query_one_promise_first_resolved_not_promise(benchmark):
+    query_def = GraphQLObjectType(
+        "Query",
+        {
+            "names": GraphQLField(
+                GraphQLList(GraphQLString),
+                resolve=lambda *_: ["1 name", name_loader.load("2")],
+            ),
+        },
+    )
+    schema = GraphQLSchema(query_def)
+
+    foo_query = parse(
+        """
+        query Foo {
+            a: names
+        }
+        """
+    )
+
+    def t():
+        assert execute(
+            schema=schema,
+            document=foo_query,
+            execution_context_class=PromiseExecutionContext,
+        ) == (
+            {
+                "a": ["1 name", "2 name"],
+            },
+            None,
+        )
+
+    benchmark(t)
+
+    name_loader_stub.assert_called_once_with(["2"])
+
+
 def test_execute_mutation():
     author_load_stub.reset_mock()
     name_loader_stub.reset_mock()
