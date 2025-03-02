@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,9 +19,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install uv
       - run: uv venv
-      - run: uv pip install --requirement pyproject.toml --all-extras
-      - run: uv pip install --editable .
-      - run: .venv/bin/pytest
+      - run: uv sync
+      - run: uv run pytest
 
   lint:
     runs-on: ubuntu-latest
@@ -30,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
       - run: pip install uv
       - run: uv venv
-      - run: uv pip install --requirement pyproject.toml --all-extras
-      - run: .venv/bin/ruff format --check .
-      - run: .venv/bin/ruff check .
-      - run: .venv/bin/mypy graphql_core_promise
+      - run: uv sync
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pyright graphql_core_promise
