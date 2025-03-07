@@ -11,6 +11,26 @@ authors = [
 license = { text = "BSD-3-Clause" }
 dependencies = ["graphql-core>=3.2", "promise>=2.3"]
 
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/fellowapp/graphql-core-promise"
+Repository = "https://github.com/fellowapp/graphql-core-promise"
+Changelog = "https://github.com/fellowapp/graphql-core-promise/releases"
+
 [dependency-groups]
 dev = ["pyright>=1.1.396", "pytest~=8.2", "pytest-benchmark~=4.0", "ruff~=0.4"]
 
