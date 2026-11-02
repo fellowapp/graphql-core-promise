@@ -9,7 +9,7 @@ authors = [
     { name = "Shen Li", email = "dustet@gmail.com" },
 ]
 license = { text = "BSD-3-Clause" }
-dependencies = ["graphql-core>=3.2", "promise>=2.3"]
+dependencies = ["graphql-core>=3.2,<3.3", "promise>=2.3"]
 
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -58,7 +58,7 @@ select = [
     "UP",
     "W",
 ]
-ignore = ["COM812"]
+ignore = ["missing-trailing-comma"]
 preview = true
 
 [tool.ruff.format]

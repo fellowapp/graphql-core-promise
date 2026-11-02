@@ -186,6 +186,34 @@ def test_execute_mutation():
     name_loader_stub.assert_called_once_with(["3", "4"])
 
 
+def test_handles_rejected_promise_field_error():
+    schema = GraphQLSchema(
+        GraphQLObjectType(
+            "Query",
+            {
+                "error": GraphQLField(
+                    GraphQLString,
+                    resolve=lambda _obj, _info: Promise.reject(
+                        RuntimeError("Promise failed")
+                    ),
+                )
+            },
+        )
+    )
+
+    result = execute(
+        schema=schema,
+        document=parse("{ error }"),
+        execution_context_class=PromiseExecutionContext,
+    )
+
+    assert result.data == {"error": None}
+    assert result.errors is not None
+    assert len(result.errors) == 1
+    assert result.errors[0].message == "Promise failed"
+    assert result.errors[0].path == ["error"]
+
+
 def test_execute_list_results(benchmark):
     author_load_stub.reset_mock()
     name_loader_stub.reset_mock()

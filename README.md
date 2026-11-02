@@ -30,9 +30,11 @@ For example:
 
 ```python
 view = GraphQLView.as_view(execution_context_class=PromiseExecutionContext)
+
+
 # OR
 class MyGraphQLView(GraphQLView):
-	execution_context_class = PromiseExecutionContext
+    execution_context_class = PromiseExecutionContext
 ```
 
 Note that this project requires graphene-django 3, which is not fully compatible with graphene-django 2.

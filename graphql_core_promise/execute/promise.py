@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterable, Callable, Iterable
 from functools import partial
+from inspect import signature
 from typing import (
     Any,
     TypeAlias,
@@ -39,6 +40,12 @@ from promise import Promise
 
 T = TypeVar("T")
 PromiseOrValue: TypeAlias = Promise[T] | T
+# Does the "Super"'s handle_field_error accept a path argument?
+# This is for compatibility with graphql-core v3.2.10,
+# where it gained a `path` argument to `handle_field_error`.
+HANDLE_FIELD_ERROR_ACCEPTS_PATH = (
+    "path" in signature(ExecutionContext.handle_field_error).parameters
+)
 
 
 def is_thenable(value: Any) -> bool:
@@ -63,26 +70,36 @@ class PromiseExecutionContext(ExecutionContext):
         field_resolver: GraphQLFieldResolver,
         type_resolver: GraphQLTypeResolver,
         subscribe_field_resolver: GraphQLFieldResolver,
-        errors: list[GraphQLError],
+        collected_errors: Any,
         middleware_manager: MiddlewareManager | None,
         is_awaitable: Callable[[Any], bool] | None,
     ) -> None:
         super().__init__(
-            schema=schema,
-            fragments=fragments,
-            root_value=root_value,
-            context_value=context_value,
-            operation=operation,
-            variable_values=variable_values,
-            field_resolver=field_resolver,
-            type_resolver=type_resolver,
-            subscribe_field_resolver=subscribe_field_resolver,
-            errors=errors,
-            middleware_manager=middleware_manager,
-            is_awaitable=None,
+            schema,
+            fragments,
+            root_value,
+            context_value,
+            operation,
+            variable_values,
+            field_resolver,
+            type_resolver,
+            subscribe_field_resolver,
+            collected_errors,
+            middleware_manager,
+            None,
         )
 
     is_awaitable = is_promise = staticmethod(is_thenable)
+
+    def handle_field_error(
+        self,
+        error: GraphQLError,
+        return_type: GraphQLOutputType,
+        path: Path,
+    ) -> None:
+        if HANDLE_FIELD_ERROR_ACCEPTS_PATH:
+            return super().handle_field_error(error, return_type, path)
+        return super().handle_field_error(error, return_type)  # type: ignore[call-arg]
 
     def execute_operation(
         self, operation: OperationDefinitionNode, root_value: Any
@@ -188,7 +205,7 @@ class PromiseExecutionContext(ExecutionContext):
                 def await_result() -> Any:
                     def handle_error(raw_error):
                         error = located_error(raw_error, field_nodes, path.as_list())
-                        self.handle_field_error(error, return_type)
+                        self.handle_field_error(error, return_type, path)
 
                     p = result.then(
                         partial(
@@ -210,7 +227,7 @@ class PromiseExecutionContext(ExecutionContext):
                 def await_completed() -> Any:
                     def handle_error(raw_error):
                         error = located_error(raw_error, field_nodes, path.as_list())
-                        self.handle_field_error(error, return_type)
+                        self.handle_field_error(error, return_type, path)
 
                     p = completed.then(lambda v: v, handle_error)
                     return p
@@ -220,7 +237,7 @@ class PromiseExecutionContext(ExecutionContext):
             return completed
         except Exception as raw_error:
             error = located_error(raw_error, field_nodes, path.as_list())
-            self.handle_field_error(error, return_type)
+            self.handle_field_error(error, return_type, path)
             return None
 
     def execute_fields(  # type: ignore[override]
@@ -415,7 +432,7 @@ class PromiseExecutionContext(ExecutionContext):
                         error = located_error(
                             raw_error, field_nodes, item_path.as_list()
                         )
-                        self.handle_field_error(error, item_type)
+                        self.handle_field_error(error, item_type, item_path)
                         return None
 
                 completed_item = await_completed(item, item_path)
@@ -433,14 +450,14 @@ class PromiseExecutionContext(ExecutionContext):
                                 error = located_error(
                                     raw_error, field_nodes, item_path.as_list()
                                 )
-                                self.handle_field_error(error, item_type)
+                                self.handle_field_error(error, item_type, item_path)
 
                             return item.catch(on_error)
 
                         completed_item = await_completed(completed_item, item_path)
                 except Exception as raw_error:
                     error = located_error(raw_error, field_nodes, item_path.as_list())
-                    self.handle_field_error(error, item_type)
+                    self.handle_field_error(error, item_type, item_path)
                     completed_item = None
 
             if is_promise(completed_item):

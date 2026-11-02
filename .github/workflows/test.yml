@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        graphql-core-version: ["3.2.9", "3.2.10", "3.2.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,7 +21,13 @@ jobs:
       - run: pip install uv
       - run: uv venv
       - run: uv sync
-      - run: uv run pytest
+      - run: uv pip install "graphql-core==${{ matrix.graphql-core-version }}"
+      - run: uv run --no-sync python -c "import graphql; print(f'graphql-core {graphql.version}')"
+      - run: uv run --no-sync pytest --benchmark-json benchmark-${{ matrix.python-version }}-graphql-core-${{ matrix.graphql-core-version }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.python-version }}-graphql-core-${{ matrix.graphql-core-version }}
+          path: benchmark-${{ matrix.python-version }}-graphql-core-${{ matrix.graphql-core-version }}.json
 
   lint:
     runs-on: ubuntu-latest
