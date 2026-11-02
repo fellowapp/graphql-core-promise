@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, call
 
+from graphql import version_info
 from graphql.execution.execute import execute
 from graphql.language import parse
 from graphql.type import (
@@ -15,6 +16,12 @@ from promise import Promise
 from promise.dataloader import DataLoader
 
 from graphql_core_promise.execute import PromiseExecutionContext
+
+EXECUTION_OPTIONS = {
+    "executor_class" if version_info >= (3, 3) else "execution_context_class": (
+        PromiseExecutionContext
+    )
+}
 
 author_load_stub = MagicMock()
 name_loader_stub = MagicMock()
@@ -134,7 +141,7 @@ def test_executes_simple_query(benchmark):
         assert execute(
             schema=TestSchema,
             document=foo_query,
-            execution_context_class=PromiseExecutionContext,
+            **EXECUTION_OPTIONS,
         ) == (
             {
                 "a": {"id": "1", "name": "1 name"},
@@ -176,14 +183,18 @@ def test_execute_mutation():
     assert execute(
         schema=TestSchema,
         document=foo_mutation,
-        execution_context_class=PromiseExecutionContext,
+        **EXECUTION_OPTIONS,
     ) == (
         {"a": {"id": "3", "name": "3 name"}, "b": {"id": "4", "name": "4 name"}},
         None,
     )
 
-    author_load_stub.assert_called_once_with(["3", "4"])
-    name_loader_stub.assert_called_once_with(["3", "4"])
+    if version_info >= (3, 3):
+        assert author_load_stub.call_args_list == [call(["3"]), call(["4"])]
+        assert name_loader_stub.call_args_list == [call(["3"]), call(["4"])]
+    else:
+        author_load_stub.assert_called_once_with(["3", "4"])
+        name_loader_stub.assert_called_once_with(["3", "4"])
 
 
 def test_handles_rejected_promise_field_error():
@@ -204,7 +215,7 @@ def test_handles_rejected_promise_field_error():
     result = execute(
         schema=schema,
         document=parse("{ error }"),
-        execution_context_class=PromiseExecutionContext,
+        **EXECUTION_OPTIONS,
     )
 
     assert result.data == {"error": None}
@@ -265,7 +276,7 @@ def test_execute_list_results(benchmark):
         assert execute(
             schema=TestSchema,
             document=foo_query,
-            execution_context_class=PromiseExecutionContext,
+            **EXECUTION_OPTIONS,
         ) == (
             {
                 "a": {

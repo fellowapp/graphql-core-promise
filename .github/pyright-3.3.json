@@ -1,0 +1,4 @@
+{
+  "include": ["../graphql_core_promise"],
+  "ignore": ["../graphql_core_promise/execute/promise.py"]
+}

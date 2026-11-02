@@ -1,3 +1,3 @@
-from .execute import PromiseExecutionContext
+from .execute import PromiseExecutionContext, PromiseExecutor
 
-__all__ = ["PromiseExecutionContext"]
+__all__ = ["PromiseExecutionContext", "PromiseExecutor"]
