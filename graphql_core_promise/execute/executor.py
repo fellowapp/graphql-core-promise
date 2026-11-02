@@ -1,8 +1,7 @@
 """Promise execution adapter for graphql-core 3.3."""
 
-from collections.abc import Awaitable
 from functools import partial
-from typing import Any, TypeGuard, cast
+from typing import Any, cast
 
 from graphql import GraphQLError
 from graphql.execution.collect_fields import FieldDetailsList, GroupedFieldSet
@@ -23,11 +22,16 @@ from graphql.type import (
     GraphQLResolveInfo,
     GraphQLTypeResolver,
 )
-from promise import Promise, is_thenable
+from promise import Promise
 
-
-def is_promise(value: Any) -> TypeGuard[Awaitable[Any]]:
-    return is_thenable(value)
+from ._promises import (
+    collect_dict_results,
+    collect_list_results,
+    is_promise,
+    is_thenable,
+    run_in_promise,
+    then_or_value,
+)
 
 
 def promise_type_resolver(
@@ -87,15 +91,13 @@ class PromiseExecutor(Executor):
         position_context: Any,
     ) -> dict[str, Any]:
         execute_root = super().execute_root_grouped_field_set
-        return (
-            Promise
-            .resolve(None)
-            .then(
-                lambda _: execute_root(
+        return cast(
+            dict[str, Any],
+            run_in_promise(
+                lambda: execute_root(
                     root_type, root_value, grouped_field_set, serially, position_context
                 )
-            )
-            .get()
+            ),
         )
 
     def execute_fields(
@@ -121,14 +123,7 @@ class PromiseExecutor(Executor):
                 if is_thenable(result):
                     pending_names.append(response_name)
 
-        if not pending_names:
-            return results
-
-        def set_results(values: list[Any]) -> dict[str, Any]:
-            results.update(zip(pending_names, values, strict=True))
-            return results
-
-        return Promise.all([results[name] for name in pending_names]).then(set_results)
+        return collect_dict_results(results, pending_names)
 
     def execute_fields_serially(
         self,
@@ -234,9 +229,7 @@ class PromiseExecutor(Executor):
 
         if return_type.is_type_of:
             matches = return_type.is_type_of(result, info)
-            if is_thenable(matches):
-                return Promise.resolve(matches).then(complete)
-            return complete(cast(bool, matches))
+            return then_or_value(matches, complete)
         return complete(True)
 
     def complete_abstract_value(
@@ -263,9 +256,7 @@ class PromiseExecutor(Executor):
                 position_context,
             )
 
-        if is_thenable(runtime_type):
-            return Promise.resolve(runtime_type).then(complete)
-        return complete(runtime_type)
+        return then_or_value(runtime_type, complete)
 
     def complete_list_value(
         self,
@@ -314,6 +305,4 @@ class PromiseExecutor(Executor):
             complete_item(item, path.add_key(index, None))
             for index, item in enumerate(result)
         ]
-        if any(is_thenable(item) for item in completed):
-            return Promise.all(completed)
-        return completed
+        return collect_list_results(completed)
