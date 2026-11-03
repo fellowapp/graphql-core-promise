@@ -206,13 +206,14 @@ class PromiseExecutionContext(ExecutionContext):
                         error = located_error(raw_error, field_nodes, path.as_list())
                         self.handle_field_error(error, return_type, path)
 
-                    p = result.then(
+                    # Locate completion failures at this field, as well as resolver
+                    # rejections: a rejection handler passed to `then` alone would
+                    # only see the latter.
+                    return result.then(
                         partial(
                             self.complete_value, return_type, field_nodes, info, path
-                        ),
-                        handle_error,
-                    )
-                    return p
+                        )
+                    ).catch(handle_error)
 
                 return await_result()
 
@@ -375,21 +376,20 @@ class PromiseExecutionContext(ExecutionContext):
             if is_promise(item):
                 # noinspection PyShadowingNames
                 def await_completed(item: Promise[Any], item_path: Path) -> Any:
-                    try:
+                    def on_item_resolve(item_value):
+                        return self.complete_value(
+                            item_type, field_nodes, info, item_path, item_value
+                        )
 
-                        def on_item_resolve(item_value):
-                            completed = self.complete_value(
-                                item_type, field_nodes, info, item_path, item_value
-                            )
-                            return completed
-
-                        return item.then(on_item_resolve)
-                    except Exception as raw_error:
+                    def on_error(raw_error):
                         error = located_error(
                             raw_error, field_nodes, item_path.as_list()
                         )
                         self.handle_field_error(error, item_type, item_path)
-                        return None
+
+                    # Locate rejections and completion failures at the item, so
+                    # that only the item (not the whole list) is nulled.
+                    return item.then(on_item_resolve).catch(on_error)
 
                 completed_item = await_completed(item, item_path)
             else:

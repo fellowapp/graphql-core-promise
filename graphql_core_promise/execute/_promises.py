@@ -1,7 +1,8 @@
 """Promise scheduling and result collection shared by the execution adapters.
 
 These helpers propagate errors. Each adapter owns its completion and rejection
-handlers so that graphql-core 3.2 and 3.3 can retain their different behavior.
+handlers, because graphql-core 3.2 and 3.3 locate and report field errors through
+different ``handle_field_error`` signatures.
 """
 
 from collections.abc import Awaitable, Callable
