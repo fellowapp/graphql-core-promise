@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        graphql-core-version: ["3.2.0", "3.2.9", "3.2.10", "3.2.13", "3.3.1"]
+        graphql-core-version: ["3.2.0", "3.2.9", "3.2.10", "3.2.12", "3.2.13", "3.3.1"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,7 +20,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install uv
       - run: uv venv
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv pip install "graphql-core==${{ matrix.graphql-core-version }}"
       - run: uv run --no-sync python -c "import graphql; print(f'graphql-core {graphql.version}')"
       - run: uv run --no-sync pytest --benchmark-json benchmark-${{ matrix.python-version }}-graphql-core-${{ matrix.graphql-core-version }}.json
@@ -45,7 +45,7 @@ jobs:
           python-version: "3.13"
       - run: pip install uv
       - run: uv venv
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv pip install "graphql-core==${{ matrix.graphql-core-version }}"
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync ruff check .
