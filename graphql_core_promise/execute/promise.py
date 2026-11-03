@@ -3,12 +3,9 @@ from functools import partial
 from inspect import signature
 from typing import (
     Any,
-    TypeAlias,
-    TypeVar,
     cast,
 )
 
-import promise
 from graphql.error import located_error
 from graphql.error.graphql_error import GraphQLError
 from graphql.execution.execute import (
@@ -38,18 +35,21 @@ from graphql.type.definition import (
 )
 from promise import Promise
 
-T = TypeVar("T")
-PromiseOrValue: TypeAlias = Promise[T] | T
+from ._promises import (
+    PromiseOrValue,
+    collect_dict_results,
+    collect_list_results,
+    is_thenable,
+    run_in_promise,
+    then_or_value,
+)
+
 # Does the "Super"'s handle_field_error accept a path argument?
 # This is for compatibility with graphql-core v3.2.10,
 # where it gained a `path` argument to `handle_field_error`.
 HANDLE_FIELD_ERROR_ACCEPTS_PATH = (
     "path" in signature(ExecutionContext.handle_field_error).parameters
 )
-
-
-def is_thenable(value: Any) -> bool:
-    return promise.is_thenable(value)
 
 
 class PromiseExecutionContext(ExecutionContext):
@@ -105,8 +105,7 @@ class PromiseExecutionContext(ExecutionContext):
         self, operation: OperationDefinitionNode, root_value: Any
     ) -> AwaitableOrValue[Any] | None:
         super_exec = super().execute_operation
-        result = Promise.resolve(None).then(lambda _: super_exec(operation, root_value))
-        return result.get()
+        return run_in_promise(lambda: super_exec(operation, root_value))
 
     def execute_fields_serially(  # type: ignore[override]
         self,
@@ -207,13 +206,14 @@ class PromiseExecutionContext(ExecutionContext):
                         error = located_error(raw_error, field_nodes, path.as_list())
                         self.handle_field_error(error, return_type, path)
 
-                    p = result.then(
+                    # Locate completion failures at this field, as well as resolver
+                    # rejections: a rejection handler passed to `then` alone would
+                    # only see the latter.
+                    return result.then(
                         partial(
                             self.complete_value, return_type, field_nodes, info, path
-                        ),
-                        handle_error,
-                    )
-                    return p
+                        )
+                    ).catch(handle_error)
 
                 return await_result()
 
@@ -261,31 +261,7 @@ class PromiseExecutionContext(ExecutionContext):
                 if is_promise(result):
                     append_awaitable(response_name)
 
-        if not awaitable_fields:
-            return results
-
-        def get_results() -> PromiseOrValue[dict[str, Any]]:
-            r = [results[field] for field in awaitable_fields]
-            if len(r) > 1:
-
-                def on_all_resolve(resolved_results: list[Any]):
-                    for field, result in zip(
-                        awaitable_fields, resolved_results, strict=False
-                    ):
-                        results[field] = result
-                    return results
-
-                p = Promise.all(r).then(on_all_resolve)
-            else:
-
-                def on_single_resolve(resolved):
-                    results[awaitable_fields[0]] = resolved
-                    return results
-
-                return r[0].then(on_single_resolve)
-            return p  # type: ignore
-
-        return get_results()
+        return collect_dict_results(results, awaitable_fields)
 
     def complete_object_value(  # type: ignore[override]
         self,
@@ -321,7 +297,7 @@ class PromiseExecutionContext(ExecutionContext):
                             )
                             return execute_result
 
-                    return is_type_of.then(on_is_type_of_resolve)
+                    return then_or_value(is_type_of, on_is_type_of_resolve)
 
                 return execute_subfields_async()
 
@@ -341,40 +317,21 @@ class PromiseExecutionContext(ExecutionContext):
         resolve_type_fn = return_type.resolve_type or self.type_resolver
         runtime_type = resolve_type_fn(result, info, return_type)  # type: ignore
 
+        def complete(resolved_runtime_type: Any) -> Any:
+            return self.complete_object_value(
+                self.ensure_valid_runtime_type(
+                    resolved_runtime_type, return_type, field_nodes, info, result
+                ),
+                field_nodes,
+                info,
+                path,
+                result,
+            )
+
         if self.is_promise(runtime_type):
             assert isinstance(runtime_type, Promise)
-
-            def await_complete_object_value() -> Any:
-                def on_runtime_type_resolve(resolved_runtime_type):
-                    return self.complete_object_value(
-                        self.ensure_valid_runtime_type(
-                            resolved_runtime_type,
-                            return_type,
-                            field_nodes,
-                            info,
-                            result,
-                        ),
-                        field_nodes,
-                        info,
-                        path,
-                        result,
-                    )
-
-                value = runtime_type.then(on_runtime_type_resolve)
-                return value
-
-            return await_complete_object_value()
-        runtime_type = cast(str | None, runtime_type)
-
-        return self.complete_object_value(
-            self.ensure_valid_runtime_type(
-                runtime_type, return_type, field_nodes, info, result
-            ),
-            field_nodes,
-            info,
-            path,
-            result,
-        )
+            return then_or_value(runtime_type, complete)
+        return complete(runtime_type)
 
     def complete_list_value(  # type: ignore[override]
         self,
@@ -419,21 +376,20 @@ class PromiseExecutionContext(ExecutionContext):
             if is_promise(item):
                 # noinspection PyShadowingNames
                 def await_completed(item: Promise[Any], item_path: Path) -> Any:
-                    try:
+                    def on_item_resolve(item_value):
+                        return self.complete_value(
+                            item_type, field_nodes, info, item_path, item_value
+                        )
 
-                        def on_item_resolve(item_value):
-                            completed = self.complete_value(
-                                item_type, field_nodes, info, item_path, item_value
-                            )
-                            return completed
-
-                        return item.then(on_item_resolve)
-                    except Exception as raw_error:
+                    def on_error(raw_error):
                         error = located_error(
                             raw_error, field_nodes, item_path.as_list()
                         )
                         self.handle_field_error(error, item_type, item_path)
-                        return None
+
+                    # Locate rejections and completion failures at the item, so
+                    # that only the item (not the whole list) is nulled.
+                    return item.then(on_item_resolve).catch(on_error)
 
                 completed_item = await_completed(item, item_path)
             else:
@@ -464,29 +420,4 @@ class PromiseExecutionContext(ExecutionContext):
                 append_awaitable(index)
             append_result(completed_item)
 
-        if not awaitable_indices:
-            return completed_results
-
-        # noinspection PyShadowingNames
-        def get_completed_results() -> PromiseOrValue[list[Any]]:
-            if len(awaitable_indices) == 1:
-
-                def on_one_resolved(result):
-                    completed_results[index] = result
-                    return completed_results
-
-                # If there is only one index, avoid the overhead of parallelization.
-                index = awaitable_indices[0]
-                return completed_results[index].then(on_one_resolved)
-
-            def on_all_resolve(results):
-                for index, result in zip(awaitable_indices, results, strict=False):
-                    completed_results[index] = result
-                return completed_results
-
-            return Promise.all([
-                completed_results[index] for index in awaitable_indices
-            ]).then(on_all_resolve)
-
-        res = get_completed_results()
-        return res
+        return collect_list_results(completed_results, awaitable_indices)
