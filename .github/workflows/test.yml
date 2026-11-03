@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         graphql-core-version: ["3.2.0", "3.2.9", "3.2.10", "3.2.12", "3.2.13", "3.3.1"]
     steps:
       - uses: actions/checkout@v4
@@ -35,18 +35,18 @@ jobs:
       matrix:
         include:
           - graphql-core-version: "3.2.13"
-            api-version: "3.2"
+            ty-exclude: "graphql_core_promise/execute/executor.py"
           - graphql-core-version: "3.3.1"
-            api-version: "3.3"
+            ty-exclude: "graphql_core_promise/execute/promise.py"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"
       - run: pip install uv
       - run: uv venv
       - run: uv sync --locked
       - run: uv pip install "graphql-core==${{ matrix.graphql-core-version }}"
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync ruff check .
-      - run: uv run --no-sync pyright --project .github/pyright-${{ matrix.api-version }}.json
+      - run: uv run --no-sync ty check --exclude "${{ matrix.ty-exclude }}"
