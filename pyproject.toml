@@ -33,7 +33,7 @@ Repository = "https://github.com/fellowapp/graphql-core-promise"
 Changelog = "https://github.com/fellowapp/graphql-core-promise/releases"
 
 [dependency-groups]
-dev = ["pyright>=1.1.414", "pytest~=9.2", "pytest-benchmark~=5.3", "ruff~=0.17", "ty>=0.0.96"]
+dev = ["pytest~=9.2", "pytest-benchmark~=5.3", "ruff~=0.17", "ty>=0.0.96"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

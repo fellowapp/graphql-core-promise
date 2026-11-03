@@ -35,10 +35,8 @@ jobs:
       matrix:
         include:
           - graphql-core-version: "3.2.13"
-            api-version: "3.2"
             ty-exclude: "graphql_core_promise/execute/executor.py"
           - graphql-core-version: "3.3.1"
-            api-version: "3.3"
             ty-exclude: "graphql_core_promise/execute/promise.py"
     steps:
       - uses: actions/checkout@v4
@@ -51,5 +49,4 @@ jobs:
       - run: uv pip install "graphql-core==${{ matrix.graphql-core-version }}"
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync ruff check .
-      - run: uv run --no-sync pyright --project .github/pyright-${{ matrix.api-version }}.json
       - run: uv run --no-sync ty check --exclude "${{ matrix.ty-exclude }}"

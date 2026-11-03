@@ -90,17 +90,15 @@ changes.
 
 CI runs the shared batching tests against both upstream lines and regression
 tests for the 3.3 adapter on Python 3.11–3.15. Ruff's `UP` rules enforce syntax
-upgrades compatible with the Python 3.11 minimum. Pyright and ty type checks run
+upgrades compatible with the Python 3.11 minimum. The ty type checks run
 separately against each graphql-core version, targeting Python 3.11 and
 ignoring the adapter that cannot be imported in that environment:
 
 ```sh
 # In an environment with graphql-core 3.2:
-pyright --project .github/pyright-3.2.json
 ty check --exclude graphql_core_promise/execute/executor.py
 
 # In an environment with graphql-core 3.3:
-pyright --project .github/pyright-3.3.json
 ty check --exclude graphql_core_promise/execute/promise.py
 ```
 
