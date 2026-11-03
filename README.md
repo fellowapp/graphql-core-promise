@@ -14,7 +14,7 @@ Add support for promise-based dataloaders and resolvers to graphql-core v3+. Thi
 ## Usage
 
 One release supports graphql-core 3.2 and 3.3, using a separate promise adapter
-for each version. Python 3.10 or newer is required.
+for each version. Python 3.11 or newer is required; CI tests Python 3.11–3.15.
 
 ### graphql-core 3.2
 
@@ -89,15 +89,19 @@ adapter does not make other GraphQL integrations compatible with upstream API
 changes.
 
 CI runs the shared batching tests against both upstream lines and regression
-tests for the 3.3 adapter. Type checks run separately against each version,
+tests for the 3.3 adapter on Python 3.11–3.15. Ruff's `UP` rules enforce syntax
+upgrades compatible with the Python 3.11 minimum. Pyright and ty type checks run
+separately against each graphql-core version, targeting Python 3.11 and
 ignoring the adapter that cannot be imported in that environment:
 
 ```sh
 # In an environment with graphql-core 3.2:
 pyright --project .github/pyright-3.2.json
+ty check --exclude graphql_core_promise/execute/executor.py
 
 # In an environment with graphql-core 3.3:
 pyright --project .github/pyright-3.3.json
+ty check --exclude graphql_core_promise/execute/promise.py
 ```
 
 ### How it works

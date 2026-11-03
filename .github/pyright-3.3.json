@@ -1,4 +1,5 @@
 {
+  "pythonVersion": "3.11",
   "include": ["../graphql_core_promise"],
   "ignore": ["../graphql_core_promise/execute/promise.py"]
 }

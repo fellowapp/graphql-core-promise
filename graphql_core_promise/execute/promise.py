@@ -99,7 +99,12 @@ class PromiseExecutionContext(ExecutionContext):
     ) -> None:
         if HANDLE_FIELD_ERROR_ACCEPTS_PATH:
             return super().handle_field_error(error, return_type, path)
-        return super().handle_field_error(error, return_type)  # type: ignore[call-arg]
+        # graphql-core before 3.2.10 does not accept a path argument.
+        handle_error = cast(
+            Callable[[GraphQLError, GraphQLOutputType], None],
+            super().handle_field_error,
+        )
+        return handle_error(error, return_type)
 
     def execute_operation(
         self, operation: OperationDefinitionNode, root_value: Any
@@ -315,7 +320,7 @@ class PromiseExecutionContext(ExecutionContext):
         result: Any,
     ) -> PromiseOrValue[Any]:
         resolve_type_fn = return_type.resolve_type or self.type_resolver
-        runtime_type = resolve_type_fn(result, info, return_type)  # type: ignore
+        runtime_type = resolve_type_fn(result, info, return_type)
 
         def complete(resolved_runtime_type: Any) -> Any:
             return self.complete_object_value(
@@ -339,7 +344,7 @@ class PromiseExecutionContext(ExecutionContext):
         field_nodes: list[FieldNode],
         info: GraphQLResolveInfo,
         path: Path,
-        result: Iterable[Any] | Iterable[Promise[Any]],
+        result: AsyncIterable[Any] | Iterable[Any],
     ) -> PromiseOrValue[list[Any]]:
         """Complete a list value.
 
